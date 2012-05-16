@@ -4,55 +4,50 @@
 -- By alteredq / http://alteredqualia.com
 -------------------------------------------------------------------------------------
 
+
 rollout ThreeJSExporter "ThreeJSExporter"
 (
 	-- Variables
 
 	local ostream,
+	
+	iniPath,
+	
+	outputFormats = #("JSON"), -- , "Binary"),
+	OUTPUT_FORMAT = undefined,
+	sceneHasVColors = false,
+	filePath,
 
-	headerFormat = "\"metadata\":
-{
-\"sourceFile\": \"%\",
-\"generatedBy\": \"3ds max ThreeJSExporter\",
-\"formatVersion\": 3,
-\"vertices\": %,
-\"normals\": %,
-\"colors\": %,
-\"uvs\": %,
-\"triangles\": %,
-\"materials\": %
-},
-
-",
-
-	vertexFormat = "%,%,%",
-
-	vertexNormalFormat = "%,%,%",
-	UVFormat = "%,%",
-
-	triFormat = "%,%,%,%",
-	triUVFormat = "%,%,%,%,%,%,%",
-	triNFormat = "%,%,%,%,%,%,%",
-	triUVNFormat = "%,%,%,%,%,%,%,%,%,%",
-
-	footerFormat = "}"
+	timeTags,
+	
+	canceled = false,
+	numProgressStepsTotal = 0,
+	numProgressSteps = 0
 
 	-------------------------------------------------------------------------------------
 	-- User interface
 
 
-	group "ThreeJSExporter  v0.8"
+	group "ThreeJSExporter  v0.9"
 	(
 
 		label msg "Exports selected meshes in Three.js ascii JSON format" align:#left
 		hyperLink lab1 "Original source at GitHub" address:"https://github.com/alteredq/three.js/blob/master/utils/exporters/max/ThreeJSExporter.ms" color:(color 255 120 0) align:#left
 
+        radioButtons exportFormat "Output Format" labels:outputFormats default:1
+
+		label dummy4 "--------------------------------------------------------" align:#left
+		
+		checkbox exportSelectAll "Select All" checked:true enabled:true
+		checkbox exportMergeObjects "Merge selection into single mesh" checked:false enabled:true
+		edittext exportMergeObjectName "Merged object name" enabled:true visible:false
+		
 		label dummy1 "--------------------------------------------------------" align:#left
 
 		checkbox exportColor "Export vertex colors" checked:false enabled:true
 		checkbox exportUv "Export uvs" checked:true enabled:true
 		checkbox exportNormal "Export normals" checked:true enabled:true
-		checkbox smoothNormal "Use vertex normals" checked:false enabled:true
+		radioButtons smoothNormal "" labels:#("Vertex normals", "Face normals") default:1 enabled:true
 
 		label dummy2 "--------------------------------------------------------" align:#left
 
@@ -61,473 +56,40 @@ rollout ThreeJSExporter "ThreeJSExporter"
 		checkbox flipFace "Flip all faces" checked:false enabled:true
 		checkbox autoflipFace "Try fixing flipped faces" checked:false enabled:true
 
-		label dummy3 "--------------------------------------------------------" align:#left
-
-		button btn_export "Export selected objects"
-
+		label dummy3 "--------------------------------------------------------" align:#left		
+		label msg1 "Animation" align:#center
+		checkbox exportAnimateEnable "Morph Targets" checked:false enabled:true
+		checkbox exportAnimateOnlyKeyframes "Key Frames Only" checked:false enabled:true visible:false
+--		checkbox exportAnimateUpdateGui "Update GUI" checked:false enabled:true visible:false
+				
+		button btn_export "Export"
 	)
 
-
-	-------------------------------------------------------------------------------------
-	-- Dump vertices
-
-	function DumpVertices src =
+	
+	function updateProgressSteps steps =
 	(
-
-		Format "\"vertices\": [" to:ostream
-
-		num = src.count
-
-		if num > 0 then
+		numProgressSteps += steps
+		percent = 100.0 * numProgressSteps / numProgressStepsTotal
+		if not progressUpdate(percent) then
 		(
-
-			for i = 1 to num do
-			(
-
-				vert = src[i]
-
-				if flipYZ.checked then
-				(
-					x = vert.x
-					y = vert.z
-					z = vert.y
-
-					z *= -1
-
-				)
-				else
-				(
-
-					x = vert.x
-					y = vert.y
-					z = vert.z
-
-				)
-
-				Format vertexFormat x y z to:ostream
-
-				if i < num then Format "," to:ostream
-
-			)
-
+			windows.processPostedMessages()
+			canceled = true
+			return false
 		)
-
-		Format "],\n\n" to:ostream
-
+		windows.processPostedMessages()
+		return true
 	)
 
-	-------------------------------------------------------------------------------------
-	-- Dump colors
-
-	function DumpColors src useColors =
-	(
-
-		Format "\"colors\": [" to:ostream
-
-		num = src.count
-
-		if num > 0 and useColors then
-		(
-
-			for i = 1 to num do
-			(
-
-				col = src[i]
-
-				r = col.r as Integer
-				g = col.g as Integer
-				b = col.b as Integer
-
-				hexNum = ( bit.shift r 16 ) + ( bit.shift g 8 ) + b
-
-				-- hexColor = formattedPrint hexNum format:"#x"
-				-- Format "%" hexColor to:ostream
-
-				decColor = formattedPrint hexNum format:"#d"
-				Format "%" decColor to:ostream
-
-				if i < num then Format "," to:ostream
-
-			)
-
-		)
-
-		Format "],\n\n" to:ostream
-
-	)
-
-	-------------------------------------------------------------------------------------
-	-- Dump normals
-
-	function DumpNormals src =
-	(
-
-		Format "\"normals\": [" to:ostream
-
-		num = src.count
-
-		if num > 0 and exportNormal.checked then
-		(
-
-			for i = 1 to num do
-			(
-
-				normal = src[i]
-				normal = normalize normal as point3
-
-				if flipYZ.checked then
-				(
-
-					x = normal.x
-					y = normal.z
-					z = normal.y
-
-					z *= -1
-
-				)
-				else
-				(
-
-					x = normal.x
-					y = normal.y
-					z = normal.z
-
-				)
-
-				Format vertexNormalFormat x y z to:ostream
-
-				if i < num then Format "," to:ostream
-
-			)
-
-		)
-
-		Format "],\n\n" to:ostream
-
-	)
-
-	-------------------------------------------------------------------------------------
-	-- Dump uvs
-
-	function DumpUvs src =
-	(
-
-		Format "\"uvs\": [[" to:ostream
-
-		num = src.count
-
-		if num > 0 and exportUv.checked then
-		(
-
-			for i = 1 to num do
-			(
-
-				uvw = src[i]
-
-				u = uvw.x
-
-				if flipUV.checked then
-				(
-					v = 1 - uvw.y
-				)
-				else
-				(
-					v = uvw.y
-				)
-
-				Format UVFormat u v to:ostream
-
-				if i < num then Format "," to:ostream
-
-			)
-
-		)
-
-		Format "]],\n\n" to:ostream
-
-	)
-
-	-------------------------------------------------------------------------------------
-	-- Dump faces
-
-	function DumpFaces src useColors =
-	(
-
-		Format "\"faces\": [" to:ostream
-
-		num = src.count
-
-		if num > 0 then
-		(
-
-			for i = 1 to num do
-			(
-
-				zface = src[i]
-
-				fv  = zface[1]
-				fuv = zface[2]
-				m   = zface[3] - 1
-				fc  = zface[4]
-
-				needsFlip = zface[5]
-
-				isTriangle = true
-				hasMaterial = true
-				hasFaceUvs = false
-				hasFaceVertexUvs = ((classof fuv == Point3) and exportUv.checked)
-				hasFaceNormals = false
-				hasFaceVertexNormals = (exportNormal.checked)
-				hasFaceColors = false
-				hasFaceVertexColors = ((classof fc == Point3) and useColors)
-
-				faceType = 0
-				faceType = bit.set faceType 1 (not isTriangle)
-				faceType = bit.set faceType 2 hasMaterial
-				faceType = bit.set faceType 3 hasFaceUvs
-				faceType = bit.set faceType 4 hasFaceVertexUvs
-				faceType = bit.set faceType 5 hasFaceNormals
-				faceType = bit.set faceType 6 hasFaceVertexNormals
-				faceType = bit.set faceType 7 hasFaceColors
-				faceType = bit.set faceType 8 hasFaceVertexColors
-
-				if i > 1 then
-				(
-					Format "," faceType to:ostream
-				)
-
-				Format "%" faceType to:ostream
-
-				if isTriangle then
-				(
-
-					va = (fv.x - 1) as Integer
-					vb = (fv.y - 1) as Integer
-					vc = (fv.z - 1) as Integer
-
-					if flipFace.checked or needsFlip then
-					(
-
-						tmp = vb
-						vb = vc
-						vc = tmp
-
-					)
-
-
-					Format ",%,%,%" va vb vc to:ostream
-
-
-					if hasMaterial then
-					(
-
-						Format ",%" m to:ostream
-
-					)
-
-					if hasFaceVertexUvs then
-					(
-
-						ua = (fuv.x - 1) as Integer
-						ub = (fuv.y - 1) as Integer
-						uc = (fuv.z - 1) as Integer
-
-						if flipFace.checked or needsFlip then
-						(
-
-							tmp = ub
-							ub = uc
-							uc = tmp
-
-						)
-
-						Format ",%,%,%" ua ub uc to:ostream
-
-					)
-
-					if hasFaceVertexNormals then
-					(
-
-						if smoothNormal.checked then
-						(
-
-							-- normals have the same indices as vertices
-
-							na = va
-							nb = vb
-							nc = vc
-
-						)
-						else
-						(
-							-- normals have the same indices as face
-
-							na = i - 1
-							nb = na
-							nc = na
-
-						)
-
-						if flipFace.checked or needsFlip then
-						(
-
-							tmp = nb
-							nb = nc
-							nc = tmp
-
-						)
-
-						Format ",%,%,%" na nb nc to:ostream
-
-					)
-
-
-					if hasFaceVertexColors then
-					(
-
-						ca = (fc.x - 1) as Integer
-						cb = (fc.y - 1) as Integer
-						cc = (fc.z - 1) as Integer
-
-						if flipFace.checked or needsFlip then
-						(
-
-							tmp = cb
-							cb = cc
-							cc = tmp
-
-						)
-
-						Format ",%,%,%" ca cb cc to:ostream
-
-					)
-
-				)
-
-			)
-
-		)
-
-		Format "]\n\n" to:ostream
-
-	)
-
-	-------------------------------------------------------------------------------------
-	-- Dump color
-
-	function DumpColor pcolor label =
-	(
-		r = pcolor.r / 255
-		g = pcolor.g / 255
-		b = pcolor.b / 255
-
-		fr = formattedPrint r format:".4f"
-		fg = formattedPrint g format:".4f"
-		fb = formattedPrint b format:".4f"
-
-		Format "\"%\"  : [%, %, %],\n" label fr fg fb to:ostream
-
-	)
-
-	-------------------------------------------------------------------------------------
-	-- Dump map
-
-	function DumpMap pmap label =
-	(
-
-		if classof pmap == BitmapTexture then
-		(
-			bm = pmap.bitmap
-
-			if bm != undefined then
-			(
-
-				fname = filenameFromPath bm.filename
-				Format "\"%\"    : \"%\",\n" label fname to:ostream
-
-			)
-
-		)
-
-	)
-
-	-------------------------------------------------------------------------------------
-	-- Export materials
-
-	function ExportMaterials zmaterials zcolors =
-	(
-
-		Format "\"materials\": [\n" to:ostream
-
-		totalMaterials = zmaterials.count
-
-		for i = 1 to totalMaterials do
-		(
-			mat = zmaterials[i]
-
-			Format "{\n" to:ostream
-
-			-- debug
-
-			Format "\"DbgIndex\" : %,\n" (i-1) to:ostream
-
-			if classof mat != BooleanClass then
-			(
-
-				useVertexColors = zcolors[i]
-
-				Format "\"DbgName\"  : \"%\",\n" mat.name to:ostream
-
-				-- colors
-
-				DumpColor mat.diffuse  "colorDiffuse"
-				DumpColor mat.ambient  "colorAmbient"
-				DumpColor mat.specular "colorSpecular"
-
-				t = mat.opacity / 100
-				s = mat.glossiness
-
-				Format "\"transparency\"  : %,\n" t to:ostream
-				Format "\"specularCoef\"  : %,\n" s to:ostream
-
-				-- maps
-
-				DumpMap mat.diffuseMap  "mapDiffuse"
-				DumpMap mat.ambientMap  "mapAmbient"
-				DumpMap mat.specularMap "mapSpecular"
-				DumpMap mat.bumpMap 	"mapBump"
-				DumpMap mat.opacityMap 	"mapAlpha"
-
-			)
-			else
-			(
-
-				useVertexColors = false
-
-				Format "\"DbgName\"  : \"%\",\n" "dummy" to:ostream
-
-				DumpColor red "colorDiffuse"
-
-			)
-
-			Format "\"vertexColors\" : %\n" useVertexColors to:ostream
-			Format "}" to:ostream
-
-			if ( i < totalMaterials ) then Format "," to:ostream
-			Format "\n\n" to:ostream
-
-		)
-
-		Format "],\n\n" to:ostream
-
-	)
-
+	include "JSONFormat.ms"
+	-- include "BinaryFormat.ms"
+	
+	
+	
 	-------------------------------------------------------------------------------------
 	-- Extract vertices from mesh
 
 	function ExtractVertices obj whereto =
 	(
-
 		n = obj.numVerts
 
 		for i = 1 to n do
@@ -539,7 +101,7 @@ rollout ThreeJSExporter "ThreeJSExporter"
 		)
 
 	)
-
+	
 	-------------------------------------------------------------------------------------
 	-- Extract vertex colors from mesh
 
@@ -566,18 +128,17 @@ rollout ThreeJSExporter "ThreeJSExporter"
 
 	-------------------------------------------------------------------------------------
 	-- Extract normals from mesh
-
 	function ExtractNormals obj whereto needsFlip =
 	(
 
-		if smoothNormal.checked then
+		if smoothNormal.state == 1 then -- vertex normals
 		(
 
 			num = obj.numVerts
 
 			for i = 1 to num do
 			(
-
+				
 				n = GetNormal obj i
 
 				if flipFace.checked or needsFlip then
@@ -585,6 +146,7 @@ rollout ThreeJSExporter "ThreeJSExporter"
 					n.x *= -1
 					n.y *= -1
 					n.z *= -1
+					
 				)
 
 				append whereto n
@@ -592,7 +154,7 @@ rollout ThreeJSExporter "ThreeJSExporter"
 			)
 
 		)
-		else
+		else -- face normals
 		(
 
 			num = obj.numFaces
@@ -764,7 +326,6 @@ rollout ThreeJSExporter "ThreeJSExporter"
 			append zface needsFlip
 
 			append whereto zface
-
 		)
 
 	)
@@ -814,7 +375,6 @@ rollout ThreeJSExporter "ThreeJSExporter"
 					)
 
 				)
-
 			)
 
 		)
@@ -868,6 +428,7 @@ rollout ThreeJSExporter "ThreeJSExporter"
 			hasVColors = false
 
 			zmesh = SnapshotAsMesh node
+			
 
 			if autoflipFace.checked then
 			(
@@ -893,29 +454,108 @@ rollout ThreeJSExporter "ThreeJSExporter"
 
 	)
 
+
+	-------------------------------------------------------------------------------------
+	-- Extract morphTargets (just more keyframed vertices) from mesh
+
+	function ExtractMorphTargets inObjects outMorphTargets =
+	(
+		with animate on 
+		(
+		    frames = #()
+		    if exportAnimateOnlyKeyframes.checked then
+		    (
+                -- Collect all keyframe times for all selected objects and sort them
+                for obj in selection do
+                (
+                    keys = obj.pos.controller.keys
+                    for k in keys do
+                    (
+						appendIfUnique frames k.time
+                    )
+                )
+                sort frames
+            )
+			else 
+            (
+    		    -- Simply extract every frame, ignoring keyframes
+                for i in animationRange.start to animationRange.end do
+                    append frames i
+            )
+		
+		    origTime = sliderTime
+			for t in frames do
+			(
+--                if exportAnimateUpdateGui.checked then sliderTime = t
+                sliderTime = t
+				
+				at time t
+				(
+					-- pks: so gross...
+					tagName = undefined
+					iFrame = t.frame as integer
+					for i in 1 to timeTags.count do -- sorted
+					(
+						tt = timeTags[i]
+						if(tt[1] > iFrame) then
+							exit
+						tagName = tt[2]
+					)
+
+				    entry = #()
+					vertices = #()
+					morphNormals = #()
+					for obj in inObjects do
+					(
+						result = ExtractMesh obj
+						meshObj = result[1]
+						if classof meshObj != BooleanClass then
+						(
+							needsFlip = result[4]
+--							print ("ExtractMorphTargets: " + needsFlip as string)
+							if ClassOf meshObj == TriMesh then
+							(
+								ExtractVertices meshObj vertices
+								ExtractNormals meshObj morphNormals needsFlip
+							)
+						)
+					)
+					
+					append outMorphTargets #(t, tagName, vertices, morphNormals)
+					
+					if canceled then
+						return null
+				)
+			)
+--            if exportAnimateUpdateGui.checked then sliderTime = origTime
+            sliderTime = origTime
+		)
+	)	
+	
+	
 	-------------------------------------------------------------------------------------
 	-- Export scene
 
-	function ExportScene =
+	function ExportObjects inObjects objectName =
 	(
-
+		if (classof inObjects) != Array then
+			inObjects = #(inObjects)
+		
 		-- Extract meshes
 
 		meshObjects = #()
-
-		mergedVertices = #()
-		mergedNormals = #()
-		mergedColors = #()
-
-		mergedUvs = #()
-		mergedFaces = #()
-
-		mergedMaterials = #()
-		mergedMaterialsColors = #()
+		outVertices = #()
+		outNormals = #()
+		outColors = #()
+		outUvs = #()
+		outFaces = #()
+		outMaterials = #()
+		outMaterialsColors = #()
+		outMorphTargets = #()
 
 		sceneHasVColors = false
 
-		for obj in selection do
+		for obj in inObjects do
 		(
 
 			result = ExtractMesh obj
@@ -933,102 +573,56 @@ rollout ThreeJSExporter "ThreeJSExporter"
 
 				append meshObjects result
 
-				vertexOffset = mergedVertices.count
-				uvOffset = mergedUvs.count
-				colorOffset = mergedColors.count
+				vertexOffset = outVertices.count
+				uvOffset = outUvs.count
+				colorOffset = outColors.count
 
-				ExtractMaterials meshObj meshMaterial mergedMaterials mergedMaterialsColors meshName hasVColors
+				ExtractMaterials meshObj meshMaterial outMaterials outMaterialsColors meshName hasVColors
 
-				ExtractVertices meshObj mergedVertices
-				ExtractNormals meshObj mergedNormals needsFlip
-				ExtractColors meshObj mergedColors
+				ExtractVertices meshObj outVertices
+				ExtractNormals meshObj outNormals needsFlip
+				ExtractColors meshObj outColors
 
-				ExtractUvs meshObj mergedUvs
+				ExtractUvs meshObj outUvs
 
-				ExtractFaces meshObj meshMaterial mergedFaces mergedMaterials needsFlip hasVColors vertexOffset uvOffset colorOffset
+				ExtractFaces meshObj meshMaterial outFaces outMaterials needsFlip hasVColors vertexOffset uvOffset colorOffset
+
+				if canceled then
+					exit
 
 			)
 
 		)
 
-		totalVertices = mergedVertices.count
-		totalFaces = mergedFaces.count
-		totalMaterials = mergedMaterials.count
-
-		totalColors = 0
-		totalNormals = 0
-		totalUvs = 0
-
-		useColors = false
-
-		if sceneHasVColors and exportColor.checked then
+		
+		if exportAnimateEnable.checked then
+			ExtractMorphTargets inObjects outMorphTargets
+		
+		
+		if not updateProgressSteps(3) then -- compile == 3 "steps"
+			return null
+		
+		
+		local package = #(meshObjects, outVertices, outNormals, outColors, outUvs, outFaces, outMaterials, outMaterialsColors, outMorphTargets)
+		
+		
+        if OUTPUT_FORMAT == "JSON" then
 		(
-
-			totalColors = mergedColors.count
-			useColors = true
-
+            JSONDumpScene package
 		)
-
-		if exportNormal.checked then
-		(
-
-			totalNormals = mergedNormals.count
-
+        else if OUTPUT_FORMAT == "Binary" then
+        (
+            exporter = BinaryExporter data:package
+			exporter.WriteScene
 		)
-
-		if exportUv.checked then
-		(
-
-			totalUvs = mergedUvs.count
-
-		)
-
-
-		-- Dump objects (debug)
-
-		-- Format "// Source objects:\n\n" to:ostream
-
-		-- i = 0
-
-		-- for obj in meshObjects do
-		-- (
-
-		-- 	meshName = obj[2]
-		-- 	Format "// %: %\n" i meshName to:ostream
-		-- 	i += 1
-
-		-- )
-
-		-- Dump model
-
-		Format "{\n\n" to:ostream
-
-		-- Dump header
-
-		Format headerFormat maxFileName totalVertices totalNormals totalColors totalUvs totalFaces totalMaterials to:ostream
-
-		-- Dump all materials in the scene
-
-		ExportMaterials mergedMaterials mergedMaterialsColors
-
-		-- Dump merged data from all selected geometries
-
-		DumpVertices mergedVertices
-		DumpNormals mergedNormals
-		DumpColors mergedColors useColors
-		DumpUvs mergedUvs
-		DumpFaces mergedFaces useColors
-
-		-- Dump footer
-
-		Format footerFormat to:ostream
+--         end
 
 	)
 
 
 	-------------------------------------------------------------------------------------
 	-- Open and prepare a file handle for writing
-
+/*
 	function GetSaveFileStream =
 	(
 		zname = getFilenameFile maxFileName
@@ -1038,7 +632,7 @@ rollout ThreeJSExporter "ThreeJSExporter"
 		if fname == undefined then
 		(
 
-			return undefined
+			return null
 
 		)
 
@@ -1047,11 +641,95 @@ rollout ThreeJSExporter "ThreeJSExporter"
 		(
 
 			MessageBox "Couldn't open file for writing !"
-			return undefined
+			return null
 
 		)
 
 		return ostream
+	)
+	*/
+	
+	function ExportAll =
+    (
+		-- "Time Tags" are used to name multiple animations within a single model by setting an "action" attribute in the morphTargets.
+		-- JavaScript code can then use this attribute to group frames into separate animations for the same model.
+		-- For example, this is useful when defining different taunts in a game character.
+		timeTags = #()
+		iTags = FrameTagManager.GetTagCount()
+		for i in 1 to iTags do
+		(
+			id = FrameTagManager.GetTagID i
+			n = FrameTagManager.GetNameByID id
+			t = FrameTagManager.GetTimeByID id
+			append timeTags #(t.frame as integer, n)
+		)
+		function sortTimeTags a b =
+		(
+			if (a[1] < b[1]) then
+				return -1
+			else if(a[1] > b[1]) then
+				return 1
+			else
+				return 0
+		)
+		qsort timeTags sortTimeTags
+		
+		OUTPUT_FORMAT = outputFormats[exportFormat.state]
+		
+        if exportSelectAll.checked then select $*
+		
+		numFrames = animationRange.end - animationRange.start
+		numFrames = numFrames.frame as integer
+
+		-- compile progress data (compiling: 3, vertices: 1, morphTargets: 1n)
+		numProgressTotal = 0
+		for obj in selection do
+		(
+			numProgressStepsTotal += 3 -- compiling
+			numProgressStepsTotal += 1 -- vertecies
+			if exportAnimateEnable.checked then
+				numProgressStepsTotal += numFrames -- morphTargets				
+		)		
+		progressStart ("Exporting ...")
+
+		dirPath = getIniSetting iniPath "General" "LastSavePath"
+        dirPath = getSavePath initialDir:dirPath
+		if dirPath != undefined then
+		(
+			setIniSetting iniPath "General" "LastSavePath" dirPath
+			
+			if exportMergeObjects.checked then
+			(
+--				name = ""
+--				if selection.count == 1 then
+--					name = selection[1].name
+				
+				inObjects = #()
+				for o in selection do
+					append inObjects o
+				filePath = dirPath + "\\" + exportMergeObjectName.text
+				ExportObjects inObjects exportMergeObjectName.text
+			)
+			else
+			(
+				for obj in selection do
+				(
+					if classof node != Dummy then -- (classof obj == PolyMeshObject) then
+					(
+						filePath = dirPath + "\\" + obj.name
+						ExportObjects obj obj.name
+						if canceled then exit
+					) 
+					else
+					(
+						print ("Ignored " + classof obj as string)
+					)
+				)
+			)
+		)
+		
+		DestroyDialog ThreeJSExporter
+		progressEnd()
 	)
 
 	-------------------------------------------------------------------------------------
@@ -1059,16 +737,63 @@ rollout ThreeJSExporter "ThreeJSExporter"
 
 	on btn_export pressed do
 	(
-		ostream = GetSaveFileStream()
-		if ostream != undefined then
+        ExportAll()
+	)
+	
+	on exportAnimateEnable changed x do
+	(
+		exportAnimateOnlyKeyframes.visible = x
+	)
+
+	on exportMergeObjects changed x do
+	(
+		exportMergeObjectName.visible = x --exportMergeObjects.checked
+	)
+
+	on ThreeJSExporter open do
+	(
+		if maxFilePath.count > 0 then -- if no file name store preferences in dir of script
+			iniPath = (maxFilePath + maxFileName + ".ThreeJSExporter.ini")
+		else -- if there is a max file name store prefs in same dir
+			iniPath = ((getFilenamePath (getSourceFileName()) ) + "ThreeJSExporter.ini")
+
+		for aControl in ThreeJSExporter.controls do
 		(
-
-			ExportScene()
-			close ostream
-
+			try
+			(
+				case classof aControl of
+				(
+					SpinnerControl: aControl.value = (readValue ((getIniSetting iniPath "Spinner" aControl.name) as stringStream))
+					CheckBoxControl: aControl.state = (readValue ((getIniSetting iniPath "Checkbox" aControl.name) as stringStream))
+					RadioControl: aControl.state = (readValue ((getIniSetting iniPath "RadioButton" aControl.name) as stringStream))
+					SliderControl: aControl.value = (readValue ((getIniSetting iniPath "Sliders" aControl.name) as stringStream))
+					EditTextControl: aControl.text = (getIniSetting iniPath "EditText" aControl.name)
+				)
+			) catch()
 		)
 
+		exportMergeObjectName.visible = exportMergeObjects.checked
+		
+		exportAnimateOnlyKeyframes.visible = exportAnimateEnable.checked
+--		exportAnimateUpdateGui.visible = exportAnimateEnable.checked
+	)
+	
+	on ThreeJSExporter close do
+	(
+		for aControl in ThreeJSExporter.controls do
+		(
+--			print (classof aControl as string)
+			case classof aControl of
+			(
+				SpinnerControl: setIniSetting iniPath "Spinner" aControl.name (aControl.value as string)
+				CheckBoxControl: setIniSetting iniPath "Checkbox" aControl.name (aControl.state as string)
+				RadioControl: setIniSetting iniPath "RadioButton" aControl.name (aControl.state as string)
+				SliderControl: setIniSetting iniPath "Sliders" aControl.name (aControl.value as string)				
+				EditTextControl: setIniSetting iniPath "EditText" aControl.name (aControl.text as string)
+			)
+		)
 	)
 
 )
+
 createDialog ThreeJSExporter width:300
