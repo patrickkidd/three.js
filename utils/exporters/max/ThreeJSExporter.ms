@@ -1,7 +1,8 @@
 -------------------------------------------------------------------------------------
 -- ThreeJSExporter.ms
 -- Exports geometry from 3ds max to Three.js models in ASCII JSON format v3
--- By alteredq / http://alteredqualia.com
+-- alteredq / http://alteredqualia.com
+-- patrickkidd / http://patrickkidd.com
 -------------------------------------------------------------------------------------
 
 
