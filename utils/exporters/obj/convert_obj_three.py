@@ -8,15 +8,15 @@ python convert_obj_three.py -i infile.obj -o outfile.js [-m "morphfiles*.obj"] [
 
 Notes:
     - flags
-        -i infile.obj			input OBJ file
-        -o outfile.js			output JS file
-        -m "morphfiles*.obj"	morph OBJ files (can use wildcards, enclosed in quotes multiple patterns separate by space)
-        -c "morphcolors*.obj"	morph colors OBJ files (can use wildcards, enclosed in quotes multiple patterns separate by space)
+        -i infile.obj            input OBJ file
+        -o outfile.js            output JS file
+        -m "morphfiles*.obj"    morph OBJ files (can use wildcards, enclosed in quotes multiple patterns separate by space)
+        -c "morphcolors*.obj"    morph colors OBJ files (can use wildcards, enclosed in quotes multiple patterns separate by space)
         -a center|centerxz|top|bottom|none model alignment
-        -s smooth|flat			smooth = export vertex normals, flat = no normals (face normals computed in loader)
-        -t ascii|binary			export ascii or binary format (ascii has more features, binary just supports vertices, faces, normals, uvs and materials)
-        -d invert|normal		invert transparency
-        -b						bake material colors into face colors
+        -s smooth|flat            smooth = export vertex normals, flat = no normals (face normals computed in loader)
+        -t ascii|binary            export ascii or binary format (ascii has more features, binary just supports vertices, faces, normals, uvs and materials)
+        -d invert|normal        invert transparency
+        -b                        bake material colors into face colors
         -x 10.0                 scale and truncate
         -f 2                    morph frame sampling step
 
@@ -135,7 +135,7 @@ import glob
 # #####################################################
 # Configuration
 # #####################################################
-ALIGN = "none"        	# center centerxz bottom top none
+ALIGN = "none"            # center centerxz bottom top none
 SHADING = "smooth"      # smooth flat
 TYPE = "ascii"          # ascii binary
 TRANSPARENCY = "normal" # normal invert
@@ -339,7 +339,6 @@ def centerxz(vertices):
 
 def normalize(v):
     """Normalize 3d vector"""
-
     l = math.sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2])
     if l:
         v[0] /= l
@@ -602,6 +601,151 @@ def parse_obj(fname):
                 smooth = chunks[1]
 
     return faces, vertices, uvs, normals, materials, mtllib
+
+# #####################################################
+# JSON parser
+# #####################################################
+def parse_json(infile):
+
+    import json
+    import copy
+
+    jsondata = json.loads(open(infile).read())
+    
+    
+    vertices = []
+    normals = []
+    uvs = []
+    faces = []
+    extradata = {
+        'morphTargets': [],
+        'maxObjectName': jsondata['metadata'].get('name', '')
+    }
+    
+    uvs = [list((i[0], (i[1]*-1.0)+1.0, 0)) for i in zip( *[ iter( jsondata['uvs'][0] ) ] * 2)]
+    
+    materials = [json.dumps(m, indent=4) for m in jsondata['materials']]
+    materials = ','.join(materials)
+    
+    # vertices
+    
+    vertices = [list(i) for i in zip( *[ iter( jsondata['vertices'] ) ] * 3)]
+    
+    # normals
+    
+    normals = []
+    if 'normals' in jsondata:
+        [list(i) for i in zip( *[ iter( jsondata['normals'] ) ] * 3)]
+
+    # UVs
+    
+    nUvLayers = 0
+    for i in jsondata['uvs']:
+        if len(i):
+            nUvLayers += 1
+
+    def isBitSet(value, bit):
+        return ( value & 2**bit ) == 2**bit
+        # return value & ( 1 << bit )
+    
+    # faces
+    
+    faces = jsondata['faces']
+    f = 0
+    zlength = len(faces)
+    outfaces = []
+    while f < zlength:
+
+        ftype = faces[ f ]
+        f += 1
+
+        isQuad              = isBitSet( ftype, 0 )
+        hasMaterial         = isBitSet( ftype, 1 )
+        hasFaceUv           = isBitSet( ftype, 2 )
+        hasFaceVertexUv     = isBitSet( ftype, 3 )
+        hasFaceNormal       = isBitSet( ftype, 4 )
+        hasFaceVertexNormal = isBitSet( ftype, 5 )
+        hasFaceColor        = isBitSet( ftype, 6 )
+        hasFaceVertexColor  = isBitSet( ftype, 7 )
+        
+#        if True or isQuad:
+#            s = ''
+#            for k in ('f', 'ftype', 'isQuad', 'hasMaterial', 'hasFaceUv', 'hasFaceVertexUv', 'hasFaceNormal', 'hasFaceVertexNormal', 'hasFaceColor', 'hasFaceVertexColor' ):
+#                s += '%s: %s, ' % (k, locals().get(k))
+#            print(s)
+
+        vertex_index = []
+        uv_index = []
+        normal_index = []
+        material = None
+        
+        nVertices = None
+        if isQuad:
+            nVertices = 4
+        else:
+            nVertices = 3
+        
+        # 4
+        for i in range(nVertices):
+            vertex_index.append( faces[ f ] + 1 )
+            f += 1
+
+        # 5
+        if hasMaterial:
+            material = faces[ f ]
+            f += 1
+          
+        if hasFaceUv:
+            for i in range(nUvLayers):
+                uv_index.append( faces[ f ] )
+                f += 1
+                
+        # 8
+        if hasFaceVertexUv:
+            for i in range(nUvLayers):
+                for j in range(nVertices):
+                    uv_index.append( faces[ f ] + 1 )
+                    f += 1
+                    
+#            if len(outfaces) == 0:
+#                print(uv_index)
+                 
+        if hasFaceNormal:
+            # normalIndex = faces[ f ] 
+            f += 1
+        
+        # 11
+        if hasFaceVertexNormal:
+            for i in range(nVertices):
+                normal_index.append( faces[ f ] + 1)
+                f += 1
+        
+        if hasFaceColor:
+            # colorIndex = faces[ f ]
+            f += 1
+            
+        outfaces.append({
+            'vertex': vertex_index,
+            'uv': uv_index,
+            'normal': normal_index,
+
+            'material': material,
+            'group': None,
+            'object': None,
+            'smooth': 0,
+            })
+    
+    # morph targets
+    
+    outMorphTargets = jsondata['morphTargets']
+    for m in outMorphTargets:
+        m['vertices'] = [list(i) for i in zip( *[ iter( m['vertices'] ) ] * 3)]
+        if 'normals' in m:
+            m['normals'] = [list(i) for i in zip( *[ iter( m['normals'] ) ] * 3)]
+    extradata['morphTargets'] = outMorphTargets
+    
+    return outfaces, vertices, uvs, normals, materials, extradata
+    
 
 # #####################################################
 # Generator - faces
@@ -1016,7 +1160,6 @@ def sort_faces(faces):
             data['quads_smooth'].append(f)
         elif is_quad_smooth_uv(f):
             data['quads_smooth_uv'].append(f)
-
     return data
 
 # #####################################################
@@ -1031,6 +1174,11 @@ def convert_ascii(infile, morphfiles, colorfiles, outfile):
 
     if not file_exists(infile):
         print "Couldn't find [%s]" % infile
+        return
+        
+    ext = infile[infile.rfind('.'):]
+    if ext in ('.js', '.json'):
+        print "JSON input and output detected; no conversion required."
         return
 
     # parse OBJ / MTL files
@@ -1081,7 +1229,7 @@ def convert_ascii(infile, morphfiles, colorfiles, outfile):
         ncolor = len(materialColors)
 
     # generate ascii model string
-
+    
     text = TEMPLATE_FILE_ASCII % {
     "name"      : get_name(outfile),
     "fname"     : os.path.basename(infile),
@@ -1111,7 +1259,7 @@ def convert_ascii(infile, morphfiles, colorfiles, outfile):
     out.write(text)
     out.close()
 
-    print "%d vertices, %d faces, %d materials" % (len(vertices), len(faces), len(materials))
+#    print "%d vertices, %d faces, %d materials" % (len(vertices), len(faces), len(materials))
 
 
 # #############################################################################
@@ -1165,6 +1313,131 @@ def dump_uvs4_to_buffer(faces, buffer):
                             ui[0]-1, ui[1]-1, ui[2]-1, ui[3]-1)
         buffer.append(data)
 
+def dump_extradata_to_buffer(extradata, buffer):
+
+    morphTargets = extradata['morphTargets']
+
+    start_extra_data = 0
+    for chunk in buffer:
+        start_extra_data += len(chunk)
+
+
+    # 1. header
+    # ------------
+    # header_bytes  uint32   4
+    # nmorphtargets uint32   4
+    # morphnormals  uint32   4
+    
+    header_bytes = struct.calcsize('<III')
+    data = struct.pack('<I', header_bytes)
+    buffer.append(data)
+
+    nmorphtargets = len(morphTargets)
+    data = struct.pack('<I', nmorphtargets)
+    buffer.append(data)
+
+    morphnormals = (SHADING == "smooth") and 1 or 0
+    data = struct.pack('<I', morphnormals)
+    buffer.append(data)
+
+    # maxObjectName
+    
+    maxObjectName = str(extradata['maxObjectName'])
+    maxObjectNameLen = len(maxObjectName)
+    data = struct.pack('<I', maxObjectNameLen)
+    buffer.append(data)
+    
+    data = struct.pack('<%is' % maxObjectNameLen, maxObjectName)
+    buffer.append(data)
+
+    add_padding(buffer, maxObjectNameLen)
+
+
+#    print('start_extra_data: %s, header_bytes: %s' %(start_extra_data, header_bytes))
+    
+    # morph targets
+    
+    for i, m in enumerate(extradata['morphTargets']):
+        # frame
+        frame = m['frame']
+        data = struct.pack('<I', frame)
+        buffer.append(data)
+    
+        # name
+        
+        name = str(m['name'])
+        namelen = len(name)
+        data = struct.pack('<I', namelen)
+        buffer.append(data)
+        
+        data = struct.pack('<%is' % namelen, name)
+        buffer.append(data)
+
+        add_padding(buffer, namelen)
+        
+        # action
+
+        action = str(m['action'])
+        actionlen = len(action)
+        data = struct.pack('<I', actionlen)
+        buffer.append(data)
+                
+        data = struct.pack('<%is' % actionlen, action)
+        buffer.append(data)
+
+        add_padding(buffer, actionlen)
+
+
+        # 1. vertices
+        # ------------
+        # x float   4
+        # y float   4
+        # z float   4
+        nvertices = len(m['vertices'])
+        data = struct.pack('<I', nvertices)
+        buffer.append(data)
+        
+        for j, v in enumerate(m['vertices']):
+            data = struct.pack('<fff',
+                               v[0], v[1], v[2])
+            buffer.append(data)
+
+
+
+#        total_bytes = 0
+#        for chunk in buffer:
+#            total_bytes += len(chunk)
+#        print('After vertices BtyeS: %s ' % total_bytes)
+    
+
+        
+        # 2. normals
+        # ---------------
+        # x signed char 1
+        # y signed char 1
+        # z signed char 1
+        if SHADING == "smooth" and 'normals' in m:
+            
+            nnormals = len(m['normals'])
+            data = struct.pack('<I', nnormals)
+            buffer.append(data)
+
+            for n in m['normals']:
+                normalize(n)
+                data = struct.pack('<bbb', math.floor(n[0]*127+0.5),
+                                           math.floor(n[1]*127+0.5),
+                                           math.floor(n[2]*127+0.5))
+                buffer.append(data)
+
+            add_padding(buffer, nnormals * 3)
+
+#        total_bytes = 0
+#        for chunk in buffer:
+#            total_bytes += len(chunk)
+#        print('After normals BtyeS: %s ' % total_bytes)
+    
+        
+
 def add_padding(buffer, n):
     if n % 4:
         for i in range(4 - n % 4):
@@ -1178,10 +1451,24 @@ def convert_binary(infile, outfile):
     if not file_exists(infile):
         print "Couldn't find [%s]" % infile
         return
-
+        
+    extradata = {
+        'morphTargets': []
+    }
+    
+    mtllib = None
+    
+    ext = infile[infile.rfind('.'):]
+    if ext == '.js' or ext == '.json':
+        faces, vertices, uvs, normals, materials, _extradata = parse_json(infile)
+        extradata.update(_extradata)
+    elif ext == '.obj':
+        faces, vertices, uvs, normals, materials, mtllib = parse_obj(infile)
+    else:
+        usage()
+        return
+        
     binfile = get_name(outfile) + ".bin"
-
-    faces, vertices, uvs, normals, materials, mtllib = parse_obj(infile)
 
     if ALIGN == "center":
         center(vertices)
@@ -1202,11 +1489,18 @@ def convert_binary(infile, outfile):
     # ###################
     # generate JS file
     # ###################
+    
+    _materials = None
+    
+    if mtllib:
+        _materials = generate_materials_string(materials, mtllib, infile)
+    else:
+        _materials = materials
 
     text = TEMPLATE_FILE_BIN % {
     "name"       : get_name(outfile),
 
-    "materials" : generate_materials_string(materials, mtllib, infile),
+    "materials" : _materials,
     "buffers"   : binfile,
 
     "fname"     : os.path.basename(infile),
@@ -1214,9 +1508,10 @@ def convert_binary(infile, outfile):
     "nface"     : len(faces),
     "nmaterial" : len(materials),
     "nnormal"   : nnormals,
-    "nuv"       : len(uvs)
+    "nuv"       : len(uvs),
     }
-
+    
+#    print("WRITING JS: " + outfile)
     out = open(outfile, "w")
     out.write(text)
     out.close()
@@ -1224,6 +1519,8 @@ def convert_binary(infile, outfile):
     # ###################
     # generate BIN file
     # ###################
+
+#    print("WRITING BIN: " + binfile)
 
     buffer = []
 
@@ -1269,12 +1566,12 @@ def convert_binary(infile, outfile):
     ntri_smooth = len(sfaces['triangles_smooth'])
     ntri_flat_uv = len(sfaces['triangles_flat_uv'])
     ntri_smooth_uv = len(sfaces['triangles_smooth_uv'])
-
+    
     nquad_flat = len(sfaces['quads_flat'])
     nquad_smooth = len(sfaces['quads_smooth'])
     nquad_flat_uv = len(sfaces['quads_flat_uv'])
     nquad_smooth_uv = len(sfaces['quads_smooth_uv'])
-
+    
     # nvertices       unsigned int    4
     # nnormals        unsigned int    4
     # nuvs            unsigned int    4
@@ -1363,7 +1660,7 @@ def convert_binary(infile, outfile):
     # nc unsigned int   4
     # -------------------
     # m  unsigned short 2
-
+    
     dump_vertices3_to_buffer(sfaces['triangles_smooth'], buffer)
     dump_normals3_to_buffer(sfaces['triangles_smooth'], buffer)
 
@@ -1490,6 +1787,9 @@ def convert_binary(infile, outfile):
 
     dump_materials_to_buffer(sfaces['quads_smooth_uv'], buffer)
     add_padding(buffer, nquad_smooth_uv * 2)
+    
+
+    dump_extradata_to_buffer(extradata, buffer)
 
     path = os.path.dirname(outfile)
     fname = os.path.join(path, binfile)

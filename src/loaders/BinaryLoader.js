@@ -38,7 +38,7 @@ THREE.BinaryLoader.prototype.load = function( url, callback, texturePath, binary
 THREE.BinaryLoader.prototype.loadAjaxJSON = function ( context, url, callback, texturePath, binaryPath, callbackProgress ) {
 
 	var xhr = new XMLHttpRequest();
-
+	
 	xhr.onreadystatechange = function () {
 
 		if ( xhr.readyState == 4 ) {
@@ -71,6 +71,7 @@ THREE.BinaryLoader.prototype.loadAjaxBuffers = function ( json, callback, binary
 		url = binaryPath + "/" + json.buffers;
 
 	var length = 0;
+	var context = this;
 
 	xhr.onreadystatechange = function () {
 
@@ -78,7 +79,7 @@ THREE.BinaryLoader.prototype.loadAjaxBuffers = function ( json, callback, binary
 
 			if ( xhr.status == 200 || xhr.status == 0 ) {
 
-				THREE.BinaryLoader.prototype.createBinModel( xhr.response, callback, texturePath, json.materials );
+				context.createBinModel( xhr.response, callback, texturePath, json.materials );
 
 			} else {
 
@@ -116,7 +117,12 @@ THREE.BinaryLoader.prototype.loadAjaxBuffers = function ( json, callback, binary
 
 // Binary AJAX parser
 
+
+THREE.BinaryLoader.prototype.init_extra_data = function ( data, start, geometry ) { }
+
 THREE.BinaryLoader.prototype.createBinModel = function ( data, callback, texturePath, materials ) {
+
+    var context = this;
 
 	var Model = function ( texturePath ) {
 
@@ -179,6 +185,8 @@ THREE.BinaryLoader.prototype.createBinModel = function ( data, callback, texture
 		start_quad_flat_uv  = start_quad_smooth   + len_quad_smooth    + handlePadding( md.nquad_smooth * 2 );
 		start_quad_smooth_uv= start_quad_flat_uv  + len_quad_flat_uv   + handlePadding( md.nquad_flat_uv * 2 );
 
+		start_extra_data    = start_quad_smooth_uv  + len_quad_smooth_uv   + handlePadding( md.nquad_smooth_uv * 2 );
+
 		// have to first process faces with uvs
 		// so that face and uv indices match
 
@@ -195,6 +203,8 @@ THREE.BinaryLoader.prototype.createBinModel = function ( data, callback, texture
 
 		init_quads_flat( start_quad_flat );
 		init_quads_smooth( start_quad_smooth );
+		
+		context.init_extra_data( data, start_extra_data, this )
 
 		this.computeCentroids();
 		this.computeFaceNormals();
